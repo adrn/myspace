@@ -3,6 +3,7 @@ import warnings
 
 # Third-party
 import numpy as np
+import scipy as sp
 from scipy.optimize import minimize
 
 # Jax
@@ -73,7 +74,7 @@ class MySpace:
         # expansion:
         self._allowed_terms = {
             'x': {'name': 'Aij', 'shape': (self.dim, self.dim)},
-            'xv': {'name': 'Bijl', 'shape': (self.dim, self.dim, self.dim)},
+            'xv': {'name': 'B(x)ik', 'shape': (8, self.dim)}, # HACK MAGIC 8-ball
             'xx': {'name': 'Cijl', 'shape': (self.dim, self.dim, self.dim),
                    'symmetry': [1, 2]},
             # 'xxv': {'name': 'Dijlm', 'shape': (3, 3, 3, 3), 'symmetry': [1, 2]},
@@ -82,6 +83,15 @@ class MySpace:
         }
         self._tensor_name_to_term = {v['name']: k
                                      for k, v in self._allowed_terms.items()}
+        self._Ms = np.array([ # THE HORROR
+            [[0, 1, 0], [-1, 0, 0], [0, 0, 0]],
+            [[0, 0, -1], [0, 0, 0], [1, 0, 0]],
+            [[0, 0, 0], [0, 0, 1], [0, -1, 0]],
+            [[1, 0, 0], [0, -1, 0], [0, 0, 0]],
+            [[-1, 0, 0], [0, 0, 0], [0, 0, 1]],
+            [[0, 1, 0], [1, 0, 0], [0, 0, 0]],
+            [[0, 0, 1], [0, 0, 0], [1, 0, 0]],
+            [[0, 0, 0], [0, 0, 1], [0, 1, 0]]])
 
         for k in self._allowed_terms:
             if 'symmetry' in self._allowed_terms[k]:
@@ -103,13 +113,15 @@ class MySpace:
         self.terms = terms
         self.tensors = None
 
-    def _unpack_p(self, p, jax=False):
+    def _unpack_p(self, p, xs, jax=False):
         """Unpack the parameter array into the individual tensors"""
 
         if jax:
             xnp = jnp
+            expm = jsp.linalg.expm
         else:
             xnp = np
+            expm = sp.linalg.expm
 
         # TODO: these if blocks below should be automated...this means that this
         # class currently only works for the terms listed below!
@@ -125,9 +137,13 @@ class MySpace:
 
         if 'xv' in self.terms:
             meta = self._allowed_terms['xv']
-            unpacked[meta['name']] = xnp.array(
+            uvecs = xnp.array(
                 p[i1:i1 + meta['size']]).reshape(meta['shape'])
             i1 += meta['size']
+            unpacked[meta['name']] = xnp.array(
+                [expm(xnp.dot(xnp.dot(uvecs, x),
+                              self._Ms.reshape(8, 9)).reshape(3, 3))
+                 for x in xs])
 
         if 'xx' in self.terms:
             meta = self._allowed_terms['xx']
@@ -183,16 +199,21 @@ class MySpace:
         # Collect the terms used in the transformation:
         summed_terms = jnp.zeros(3)
         for tensor_name, T in tensors.items():
-            # Auto-construct the einsum magic
-            vector_idx = ','.join([f'n{x}' for x in tensor_name[2:]])
-            einsum_str = f"{tensor_name[1:]},{vector_idx}->ni"
+            if tensor_name == 'B(x)ik': # HACK: SPECIAL-CASING the xv term
+                summed_terms += np.array([jnp.dot(B, v)
+                                          for B, v in zip(T, xv_data['v'])])
 
-            # Get vector arguments by mapping back from tensor name to term name
-            term_name = self._tensor_name_to_term[tensor_name]
-            vectors = [xv_data[xv] for xv in list(term_name)]
+            else:
+                # Auto-construct the einsum magic
+                vector_idx = ','.join([f'n{x}' for x in tensor_name[2:]])
+                einsum_str = f"{tensor_name[1:]},{vector_idx}->ni"
 
-            # Set up einsum with the index string, tensor, and vector
-            summed_terms += jnp.einsum(einsum_str, T, *vectors)
+                # Get vector arguments by mapping back from tensor name to term name
+                term_name = self._tensor_name_to_term[tensor_name]
+                vectors = [xv_data[xv] for xv in list(term_name)]
+
+                # Set up einsum with the index string, tensor, and vector
+                summed_terms += jnp.einsum(einsum_str, T, *vectors)
 
         # The model or transformed velocities are the input velocities, plus the
         # "correction" from the various tensor products
@@ -227,7 +248,7 @@ class MySpace:
             The value of the objective function.
         """
 
-        tensors = self._unpack_p(p, jax=True)
+        tensors = self._unpack_p(p, x_ni, jax=True)
         vv_ni = self.get_model_v(v_ni, x_ni, tensors=tensors)
         delta_nki = vv_ni[:, None] - self.mu_ki[None]  # (N, K, 3)
 
@@ -259,7 +280,7 @@ class MySpace:
                        args=(train_v, train_x))
 
         if res.success:
-            self.tensors = self._unpack_p(res.x)
+            self.tensors = self._unpack_p(res.x, train_x)
         else:
             warnings.warn("WARNING: failed to fit.",
                           category=RuntimeWarning)
