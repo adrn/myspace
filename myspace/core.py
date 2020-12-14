@@ -200,7 +200,7 @@ class MySpace:
         summed_terms = jnp.zeros(3)
         for tensor_name, T in tensors.items():
             if tensor_name == 'B(x)ik': # HACK: SPECIAL-CASING the xv term
-                summed_terms += np.array([jnp.dot(B, v)
+                summed_terms += jnp.array([jnp.dot(B, v)
                                           for B, v in zip(T, xv_data['v'])])
 
             else:
