@@ -74,7 +74,7 @@ class MySpace:
         # expansion:
         self._allowed_terms = {
             'x': {'name': 'Aij', 'shape': (self.dim, self.dim)},
-            'xv': {'name': 'B(x)ik', 'shape': (8, self.dim)}, # HACK MAGIC 8-ball
+            'xv': {'name': 'B', 'shape': (8, self.dim)}, # HACK MAGIC 8-ball
             'xx': {'name': 'Cijl', 'shape': (self.dim, self.dim, self.dim),
                    'symmetry': [1, 2]},
             # 'xxv': {'name': 'Dijlm', 'shape': (3, 3, 3, 3), 'symmetry': [1, 2]},
@@ -118,10 +118,8 @@ class MySpace:
 
         if jax:
             xnp = jnp
-            expm = jsp.linalg.expm
         else:
             xnp = np
-            expm = sp.linalg.expm
 
         # TODO: these if blocks below should be automated...this means that this
         # class currently only works for the terms listed below!
@@ -137,13 +135,9 @@ class MySpace:
 
         if 'xv' in self.terms:
             meta = self._allowed_terms['xv']
-            uvecs = xnp.array(
+            unpacked[meta['name']] = xnp.array(
                 p[i1:i1 + meta['size']]).reshape(meta['shape'])
             i1 += meta['size']
-            unpacked[meta['name']] = xnp.array(
-                [expm(xnp.dot(xnp.dot(uvecs, x),
-                              self._Ms.reshape(8, 9)).reshape(3, 3))
-                 for x in xs])
 
         if 'xx' in self.terms:
             meta = self._allowed_terms['xx']
@@ -199,9 +193,9 @@ class MySpace:
         # Collect the terms used in the transformation:
         summed_terms = jnp.zeros(3)
         for tensor_name, T in tensors.items():
-            if tensor_name == 'B(x)ik': # HACK: SPECIAL-CASING the xv term
-                summed_terms += jnp.array([jnp.dot(B, v)
-                                          for B, v in zip(T, xv_data['v'])])
+            if tensor_name == 'B': # HACK: SPECIAL-CASING the xv term
+                # Holy FUCK how do you fit the next line into PEP8?
+                summed_terms += jnp.array([jnp.dot(jsp.linalg.expm(jnp.dot(jnp.dot(T, x), self._Ms.reshape(8, 9)).reshape(3, 3)), v) for x, v in zip(xv_data['x'], xv_data['v'])])
 
             else:
                 # Auto-construct the einsum magic
