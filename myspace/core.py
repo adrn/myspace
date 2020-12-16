@@ -195,7 +195,10 @@ class MySpace:
         for tensor_name, T in tensors.items():
             if tensor_name == 'B': # HACK: SPECIAL-CASING the xv term
                 # Holy FUCK how do you fit the next line into PEP8?
-                summed_terms += jnp.array([jnp.dot(jsp.linalg.expm(jnp.dot(jnp.dot(T, x), self._Ms.reshape(8, 9)).reshape(3, 3)), v) for x, v in zip(xv_data['x'], xv_data['v'])])
+                # NOTE that this is not doing any `expm()`; only linear term
+                # To-do items:
+                # APW: Change list comprehension into an einsum
+                summed_terms += jnp.array([jnp.dot(jnp.dot(jnp.dot(T, x), self._Ms.reshape(8, 9)).reshape(3, 3), v) for x, v in zip(xv_data['x'], xv_data['v'])])
 
             else:
                 # Auto-construct the einsum magic
