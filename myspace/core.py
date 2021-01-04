@@ -193,23 +193,21 @@ class MySpace:
         # Collect the terms used in the transformation:
         summed_terms = jnp.zeros(3)
         for tensor_name, T in tensors.items():
+            # Auto-construct the einsum magic
+            vector_idx = ','.join([f'n{x}' for x in tensor_name[2:]])
+            einsum_str = f"{tensor_name[1:]},{vector_idx}->ni"
+
+            # Get vector arguments by mapping back from tensor name to term name
+            term_name = self._tensor_name_to_term[tensor_name]
+            vectors = [xv_data[xv] for xv in list(term_name)]
+
+            # Set up einsum with the index string, tensor, and vector
             if tensor_name == 'B': # HACK: SPECIAL-CASING the xv term
-                # Holy FUCK how do you fit the next line into PEP8?
                 # NOTE that this is not doing any `expm()`; only linear term
-                # To-do items:
-                # APW: Change list comprehension into an einsum
-                summed_terms += jnp.array([jnp.dot(jnp.dot(jnp.dot(T, x), self._Ms.reshape(8, 9)).reshape(3, 3), v) for x, v in zip(xv_data['x'], xv_data['v'])])
-
+                #      corresponding to the linearization of expm()
+                einsum_str = "ij,ikl,nj,nl->nk"
+                summed_terms += jnp.einsum(einsum_str, T, self._Ms, *vectors)
             else:
-                # Auto-construct the einsum magic
-                vector_idx = ','.join([f'n{x}' for x in tensor_name[2:]])
-                einsum_str = f"{tensor_name[1:]},{vector_idx}->ni"
-
-                # Get vector arguments by mapping back from tensor name to term name
-                term_name = self._tensor_name_to_term[tensor_name]
-                vectors = [xv_data[xv] for xv in list(term_name)]
-
-                # Set up einsum with the index string, tensor, and vector
                 summed_terms += jnp.einsum(einsum_str, T, *vectors)
 
         # The model or transformed velocities are the input velocities, plus the
