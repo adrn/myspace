@@ -216,6 +216,9 @@ class MySpace:
 
         return model_v
 
+    def _B(self):
+        return jnp.einsum("ij,ikl->jkl", self.tensors['B'], self._Ms)
+
     def objective(self, p, v_ni, x_ni):
         """Compute the objective function given a parameter array.
 
