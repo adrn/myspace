@@ -216,7 +216,9 @@ class MySpace:
 
         return model_v
 
-    def _B(self):
+    def _get_B(self):
+        """Don't hate me because I'm stupid.
+        """
         return jnp.einsum("ij,ikl->jkl", self.tensors['B'], self._Ms)
 
     def objective(self, p, v_ni, x_ni):
